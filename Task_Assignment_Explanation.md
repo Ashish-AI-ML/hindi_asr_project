@@ -629,4 +629,5 @@ In this example, Models 1-4 agreed on "जाता" and were penalized for disa
 
 ---
 
-*Document prepared by Pranav Sharma — AI Researcher Intern Assignment, Josh Talks*
+*Document prepared by Ashish Chaturvedi — AI Researcher Intern Assignment, Josh Talks*
+
