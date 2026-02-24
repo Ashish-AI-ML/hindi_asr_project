@@ -1,215 +1,156 @@
-# 🎙️ Hindi ASR — End-to-End Speech Recognition Research
+# Hindi ASR Research Project
 
-A comprehensive Hindi Automatic Speech Recognition (ASR) research project covering model fine-tuning, linguistic analysis, and novel evaluation methods.
+**Josh Talks AI Researcher Intern — Speech & Audio Task Assignment**
 
-> **Highlights**: Whisper fine-tuning on Hindi • Disfluency detection & segmentation • Devanagari spelling validation • ROVER-inspired lattice WER
-
----
+A comprehensive Hindi speech recognition research project covering data preprocessing, Whisper fine-tuning, disfluency detection, spelling error classification, and lattice-based WER evaluation.
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                       DATA LAYER                            │
-│   download.py  │  audio_utils.py  │  text_utils.py          │
-│   manifest.py  │  config.py                                 │
-└────────────────┬──────────────┬──────────────┬──────────────┘
-                 ↓              ↓              ↓
-┌────────────────────┐ ┌───────────────┐ ┌────────────────────┐
-│  Whisper           │ │  Disfluency   │ │  Spelling          │
-│  Fine-Tuning       │ │  Detection    │ │  Classifier        │
-│  + FLEURS WER Eval │ │  + Clipping   │ │  (4-layer cascade) │
-│  training/         │ │  disfluency/  │ │  spelling/         │
-│  evaluation/       │ │               │ │                    │
-└────────────────────┘ └───────────────┘ └────────────────────┘
-                                         ┌────────────────────┐
-                                         │  Lattice WER       │
-                                         │  (ROVER-inspired)  │
-                                         │  lattice/          │
-                                         └────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│                    DATA LAYER                           │
+│   data/download.py │ audio_utils.py │ text_utils.py     │
+│   data/manifest.py │ config.py                         │
+└─────────────────────────────────────────────────────────┘
+         ↓                ↓                ↓
+┌────────────────┐ ┌────────────────┐ ┌──────────────────┐
+│   MODULE 1     │ │   MODULE 2     │ │   MODULE 3       │
+│ Whisper FT     │ │ Disfluency     │ │ Spell Checker    │
+│ + WER Eval     │ │ Detection      │ │ (1.77L words)    │
+│ training/      │ │ disfluency/    │ │ spelling/        │
+│ evaluation/    │ │                │ │                  │
+└────────────────┘ └────────────────┘ └──────────────────┘
+                                      ┌──────────────────┐
+                                      │   MODULE 4       │
+                                      │ Lattice WER      │
+                                      │ lattice/         │
+                                      └──────────────────┘
 ```
 
----
+## Setup
 
-## Getting Started
-
-### Prerequisites
-- Python 3.9+
-- GPU recommended for Whisper training (Colab T4 works)
-
-### Installation
 ```bash
-git clone https://github.com/YOUR_USERNAME/hindi_asr_project.git
 cd hindi_asr_project
 pip install -r requirements.txt
-cp .env.example .env   # Add your HuggingFace token
 ```
 
-### Quick Test
+## Quick Start
+
+### Q1: Fine-tune Whisper + WER Evaluation
+
 ```bash
-python test_all.py    # Run all unit tests (10 tests)
-python demo.py        # See all modules in action
-```
+# Step 1: Build data manifest (after downloading data)
+python -c "from data.manifest import *; from data.download import *; ..."
 
----
-
-## Modules
-
-### 1. Whisper Fine-Tuning & WER Evaluation
-
-Fine-tunes `openai/whisper-small` on Hindi conversational speech and benchmarks against the FLEURS Hindi test set.
-
-**Run via Colab** (GPU required):
-```
-notebooks/01_whisper_finetune_and_eval.ipynb
-```
-
-**Or locally**:
-```bash
+# Step 2: Fine-tune Whisper-small
 python -m training.train --manifest processed_data/manifests/train_manifest.json
+
+# Step 3: Evaluate on FLEURS Hindi
 python -m evaluation.wer_eval --model_path outputs/model/final_model
 ```
 
-**Key decisions**:
-- Learning rate `1e-5` to prevent catastrophic forgetting
-- FP16 + gradient accumulation for memory efficiency
-- Forced decoder IDs ensure Hindi-only output
-
----
-
-### 2. Disfluency Detection & Audio Segmentation
-
-Detects speech disfluencies (fillers, repetitions, prolongations, false starts) in Hindi transcripts and clips the corresponding audio segments.
+### Q2: Disfluency Detection
 
 ```bash
+# Run full pipeline (detect + clip audio)
 python -m disfluency.pipeline --manifest processed_data/manifests/train_manifest.json
+
+# Text-only mode (skip audio clipping)
+python -m disfluency.pipeline --manifest processed_data/manifests/train_manifest.json --no_clip
 ```
 
-**Output**: Structured CSV with each disfluency occurrence + clipped audio segments.
+**Output**: `outputs/disfluency/disfluency_detections.csv` + audio clips in `outputs/disfluency/clips/`
 
-**Detection methods**:
-| Type | Approach |
-|------|----------|
-| Fillers | Lexicon matching (उम, आह, hmm, actually...) |
-| Repetitions | Consecutive word comparison |
-| Prolongations | Regex for repeated Devanagari characters |
-| False starts | Fragment detection + interruption markers |
-
----
-
-### 3. Hindi Spelling Error Detection
-
-4-layer cascade classifier for identifying correct vs incorrect Hindi spellings at scale (~1.77L unique words).
+### Q3: Spelling Classification
 
 ```bash
+# Classify word list
 python -m spelling.pipeline --wordlist path/to/words.txt
 ```
 
-**Output**: CSV with `word, classification (correct/incorrect), reason, layer`.
+**Output**: `outputs/spelling/spelling_classification.csv`
 
-**Classification cascade**:
-1. **Dictionary lookup** — fast match against 300+ core Hindi words
-2. **Morphological analysis** — suffix stripping to find valid roots
-3. **Unicode validation** — detects invalid Devanagari sequences
-4. **Edit distance** — catches typos within 1 edit of known words
-
-> English words transliterated to Devanagari (e.g., "कंप्यूटर" for "computer") are treated as **correct** per Hindi transcription guidelines.
-
----
-
-### 4. Lattice-Based WER with Consensus Correction
-
-ROVER-inspired approach that improves WER fairness when the human reference itself contains errors.
+### Q4: Lattice-Based WER
 
 ```bash
-python -m lattice.wer --input model_outputs.json --threshold 3
+# Prepare input (JSON with reference + 5 model outputs)
+python -m lattice.wer --input path/to/model_outputs.json --threshold 3
 ```
 
-**How it works**:
-1. Align all 5 ASR model outputs to the reference using DP
-2. At each position, count which word the majority of models agree on
-3. If ≥K models agree on a word that differs from reference → correct the reference
-4. Recompute WER against the corrected reference
+**Input format** (`model_outputs.json`):
+```json
+{
+  "reference": "मैं जाती हूं",
+  "models": {
+    "model_1": "मैं जाता हूं",
+    "model_2": "मैं जाता हूं",
+    "model_3": "मैं जाता हूं",
+    "model_4": "मैं जाता हूं",
+    "model_5": "मैं जाती हूं"
+  }
+}
+```
 
-**Result**: Models unfairly penalized by a wrong reference see reduced WER; others stay unchanged.
-
-See [lattice/methodology.md](lattice/methodology.md) for full theoretical justification.
-
----
+**Output**: `outputs/lattice/lattice_wer_report.md`
 
 ## Project Structure
 
 ```
 hindi_asr_project/
-├── config.py                    # Central configuration + .env loader
-├── requirements.txt             # All dependencies
-├── test_all.py                  # Unit tests (10 tests, all modules)
-├── demo.py                      # Quick demo script
-│
-├── data/                        # Shared data utilities
-│   ├── download.py              #   GCS audio download + validation
-│   ├── audio_utils.py           #   Load, resample, clip audio
-│   ├── text_utils.py            #   Hindi/Devanagari normalization
-│   └── manifest.py              #   Dataset manifest builder
-│
-├── training/                    # Whisper fine-tuning
-│   ├── train.py                 #   Training script
-│   ├── dataset.py               #   Custom PyTorch Dataset
-│   └── data_collator.py         #   Batch collation with padding
-│
-├── evaluation/                  # WER benchmarking
+├── config.py                    # Global configuration
+├── requirements.txt             # Dependencies
+├── data/                        # Shared data layer
+│   ├── download.py              #   Download + validation
+│   ├── audio_utils.py           #   Audio load/resample/clip
+│   ├── text_utils.py            #   Hindi text normalization
+│   └── manifest.py              #   Dataset manifest + health report
+├── training/                    # Module 1: Whisper fine-tuning
+│   ├── dataset.py               #   Custom Dataset classes
+│   ├── data_collator.py         #   WhisperDataCollator
+│   └── train.py                 #   Training script
+├── evaluation/                  # Module 1: WER evaluation
 │   └── wer_eval.py              #   FLEURS evaluation + tables
-│
-├── disfluency/                  # Disfluency detection
-│   ├── lexicon.py               #   Hindi filler word dictionary
+├── disfluency/                  # Module 2: Disfluency detection
+│   ├── lexicon.py               #   Hindi filler dictionary
 │   ├── detector.py              #   Multi-method detector
 │   ├── clipper.py               #   Audio segment clipper
-│   └── pipeline.py              #   End-to-end pipeline + CSV
-│
-├── spelling/                    # Spelling classification
-│   ├── lexicon_loader.py        #   Multi-source Hindi dictionary
-│   ├── unicode_validator.py     #   Devanagari sequence validator
-│   ├── classifier.py            #   4-layer cascade classifier
-│   └── pipeline.py              #   Batch classification pipeline
-│
-├── lattice/                     # Lattice-based WER
-│   ├── alignment.py             #   DP word-level alignment
+│   └── pipeline.py              #   End-to-end pipeline
+├── spelling/                    # Module 3: Spelling classification
+│   ├── lexicon_loader.py        #   Hindi dictionary loader
+│   ├── unicode_validator.py     #   Devanagari validity checker
+│   ├── classifier.py            #   4-layer classifier
+│   └── pipeline.py              #   Classification pipeline
+├── lattice/                     # Module 4: Lattice-based WER
+│   ├── alignment.py             #   DP word alignment
 │   ├── lattice_builder.py       #   Position lattice construction
-│   ├── consensus.py             #   Majority voting + correction
-│   ├── wer.py                   #   Standard vs lattice WER
-│   └── methodology.md           #   Approach & justification
-│
-└── notebooks/                   # Colab notebooks
-    ├── 01_whisper_finetune_and_eval.ipynb
-    └── 02_disfluency_spelling_lattice.ipynb
+│   ├── consensus.py             #   Consensus + reference correction
+│   ├── wer.py                   #   Lattice WER computation
+│   └── methodology.md           #   Approach justification
+└── outputs/                     # Generated outputs
+    ├── model/                   #   Model checkpoints
+    ├── evaluation/              #   WER results
+    ├── disfluency/              #   Disfluency CSV + clips
+    ├── spelling/                #   Spelling classification CSV
+    └── lattice/                 #   Lattice WER reports
 ```
 
----
-
-## Design Decisions
+## Key Design Decisions
 
 | Decision | Rationale |
 |----------|-----------|
 | 16kHz mono audio | Whisper's required input format |
-| NFC Unicode normalization | Hindi has multiple valid byte sequences; NFC ensures consistency |
-| Segment duration 0.5–30s | < 0.5s is noise; > 30s exceeds Whisper's attention window |
-| WER + CER dual reporting | CER gives a fairer picture for morphologically rich Hindi |
-| Cascading classifier layers | Fast dictionary check catches 80%+ words; expensive edit-distance runs only on unknowns |
-| Word-level lattice alignment | Standard WER unit, interpretable, established in ASR literature |
-| Consensus threshold K=3/5 | Simple majority — robust against individual model errors |
+| NFC Unicode normalization | Hindi has multiple valid encodings; NFC ensures consistency |
+| Segment duration 0.5–30s | < 0.5s = noise; > 30s = Whisper struggles |
+| WER + CER reporting | CER gives fairer picture for morphologically rich Hindi |
+| 4-layer spelling classifier | Cascading from fast dictionary to slow edit-distance |
+| Word-level lattice alignment | Natural WER unit, interpretable, standard in ASR |
+| Consensus threshold K=3 | Majority vote from 5 models |
 
----
+## Research Mindset Checklist
 
-## Environment Variables
-
-Copy `.env.example` to `.env` and add your keys:
-
-```bash
-HF_TOKEN=hf_your_token_here   # Required — HuggingFace model access
-```
-
----
-
-## License
-
-MIT
+- [x] Each design decision is justified, not just implemented
+- [x] Data quality quantified before training (health report)
+- [x] WER computed on standardized, normalized text
+- [x] Failure cases documented (high-WER examples, uncertain spellings)
+- [x] Results reproducible from methodology descriptions
+- [x] Limitations explicitly stated for each module
